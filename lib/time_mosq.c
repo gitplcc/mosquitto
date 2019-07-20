@@ -22,7 +22,6 @@ Contributors:
 #endif
 
 #ifdef WIN32
-#  define _WIN32_WINNT _WIN32_WINNT_VISTA
 #  include <windows.h>
 #else
 #  include <unistd.h>
