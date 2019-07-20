@@ -121,9 +121,9 @@ if (WITH_WEBSOCKETS)
 	add_definitions("-DWITH_WEBSOCKETS")
 endif (WITH_WEBSOCKETS)
 
-if (WIN32 OR CYGWIN)
+if (WIN32)
 	set (MOSQ_SRCS ${MOSQ_SRCS} service.c)
-endif (WIN32 OR CYGWIN)
+endif (WIN32)
 
 add_definitions (-DWITH_BROKER)
 

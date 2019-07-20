@@ -36,7 +36,7 @@ Contributors:
 #  include <ws2tcpip.h>
 #endif
 
-#if !defined(WIN32) && !defined(__CYGWIN__)
+#if !defined(WIN32)
 #  include <syslog.h>
 #endif
 
@@ -56,7 +56,7 @@ struct config_recurse {
 	int max_queued_messages;
 };
 
-#if defined(WIN32) || defined(__CYGWIN__)
+#if defined(WIN32)
 #include <windows.h>
 extern SERVICE_STATUS_HANDLE service_handle;
 #endif
@@ -194,7 +194,7 @@ static void config__init_reload(struct mosquitto_db *db, struct mosquitto__confi
 	mosquitto__free(config->log_file);
 	config->log_file = NULL;
 
-#if defined(WIN32) || defined(__CYGWIN__)
+#if defined(WIN32)
 	if(service_handle){
 		/* This is running as a Windows service. Default to no logging. Using
 		 * stdout/stderr is forbidden because the first clients to connect will
@@ -1478,7 +1478,7 @@ int config__read_file_core(struct mosquitto__config *config, bool reload, struct
 							log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid log_dest value (%s).", token);
 							return MOSQ_ERR_INVAL;
 						}
-#if defined(WIN32) || defined(__CYGWIN__)
+#if defined(WIN32)
 						if(service_handle){
 							if(cr->log_dest == MQTT3_LOG_STDOUT || cr->log_dest == MQTT3_LOG_STDERR){
 								log__printf(NULL, MOSQ_LOG_ERR, "Error: Cannot log to stdout/stderr when running as a Windows service.");
@@ -1491,7 +1491,7 @@ int config__read_file_core(struct mosquitto__config *config, bool reload, struct
 						return MOSQ_ERR_INVAL;
 					}
 				}else if(!strcmp(token, "log_facility")){
-#if defined(WIN32) || defined(__CYGWIN__)
+#if defined(WIN32)
 					log__printf(NULL, MOSQ_LOG_WARNING, "Warning: log_facility not supported on Windows.");
 #else
 					if(conf__parse_int(&token, "log_facility", &tmp_int, saveptr)) return MOSQ_ERR_INVAL;

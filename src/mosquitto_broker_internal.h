@@ -714,7 +714,7 @@ void session_expiry__send_all(struct mosquitto_db *db);
 /* ============================================================
  * Window service and signal related functions
  * ============================================================ */
-#if defined(WIN32) || defined(__CYGWIN__)
+#if defined(WIN32)
 void service_install(void);
 void service_uninstall(void);
 void service_run(void);

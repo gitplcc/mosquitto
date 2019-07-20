@@ -89,7 +89,7 @@ struct mosquitto_db *mosquitto__get_db(void)
  */
 int drop_privileges(struct mosquitto__config *config, bool temporary)
 {
-#if !defined(__CYGWIN__) && !defined(WIN32)
+#if !defined(WIN32)
 	struct passwd *pwd;
 	char *err;
 	int rc;
@@ -143,7 +143,7 @@ int drop_privileges(struct mosquitto__config *config, bool temporary)
 
 int restore_privileges(void)
 {
-#if !defined(__CYGWIN__) && !defined(WIN32)
+#if !defined(WIN32)
 	char *err;
 	int rc;
 
@@ -212,7 +212,7 @@ int main(int argc, char *argv[])
 #endif
 	struct mosquitto *ctxt, *ctxt_tmp;
 
-#if defined(WIN32) || defined(__CYGWIN__)
+#if defined(WIN32)
 	if(argc == 2){
 		if(!strcmp(argv[1], "run")){
 			service_run();
