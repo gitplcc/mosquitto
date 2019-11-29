@@ -28,9 +28,10 @@ Contributors:
 #  include <sys/stat.h>
 #endif
 
-#if !defined(WITH_TLS) && defined(__linux__)
-#  if defined(__GLIBC__) && __GLIBC_PREREQ(2, 25)
+#if !defined(WITH_TLS) && defined(__linux__) && defined(__GLIBC__)
+#  if __GLIBC_PREREQ(2, 25)
 #    include <sys/random.h>
+#    define HAVE_GETRANDOM 1
 #  endif
 #endif
 
@@ -67,6 +68,7 @@ int mosquitto__check_keepalive(struct mosquitto *mosq)
 #ifndef WITH_BROKER
 	int rc;
 #endif
+	int state;
 
 	assert(mosq);
 #if defined(WITH_BROKER) && defined(WITH_BRIDGE)
@@ -87,7 +89,8 @@ int mosquitto__check_keepalive(struct mosquitto *mosq)
 	if(mosq->keepalive && mosq->sock != INVALID_SOCKET &&
 			(now >= next_msg_out || now - last_msg_in >= mosq->keepalive)){
 
-		if(mosq->state == mosq_cs_connected && mosq->ping_t == 0){
+		state = mosquitto__get_state(mosq);
+		if(state == mosq_cs_active && mosq->ping_t == 0){
 			send__pingreq(mosq);
 			/* Reset last msg times to give the server time to send a pingresp */
 			pthread_mutex_lock(&mosq->msgtime_mutex);
@@ -99,13 +102,12 @@ int mosquitto__check_keepalive(struct mosquitto *mosq)
 			net__socket_close(db, mosq);
 #else
 			net__socket_close(mosq);
-			pthread_mutex_lock(&mosq->state_mutex);
-			if(mosq->state == mosq_cs_disconnecting){
+			state = mosquitto__get_state(mosq);
+			if(state == mosq_cs_disconnecting){
 				rc = MOSQ_ERR_SUCCESS;
 			}else{
 				rc = MOSQ_ERR_KEEPALIVE;
 			}
-			pthread_mutex_unlock(&mosq->state_mutex);
 			pthread_mutex_lock(&mosq->callback_mutex);
 			if(mosq->on_disconnect){
 				mosq->in_callback = true;
@@ -247,7 +249,7 @@ FILE *mosquitto__fopen(const char *path, const char *mode, bool restrict_read)
 			sec.bInheritHandle = FALSE;
 			sec.lpSecurityDescriptor = &sd;
 
-			hfile = CreateFile(buf, GENERIC_READ | GENERIC_WRITE, 0,
+			hfile = CreateFile(buf, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
 				&sec,
 				dwCreationDisposition,
 				FILE_ATTRIBUTE_NORMAL,
@@ -325,12 +327,12 @@ int util__random_bytes(void *bytes, int count)
 	if(RAND_bytes(bytes, count) == 1){
 		rc = MOSQ_ERR_SUCCESS;
 	}
-#elif defined(__GLIBC__) && __GLIBC_PREREQ(2, 25)
-	if(getrandom(bytes, count, 0) == 0){
+#elif defined(HAVE_GETRANDOM)
+	if(getrandom(bytes, count, 0) == count){
 		rc = MOSQ_ERR_SUCCESS;
 	}
 #elif defined(WIN32)
-	HRYPTPROV provider;
+	HCRYPTPROV provider;
 
 	if(!CryptAcquireContext(&provider, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)){
 		return MOSQ_ERR_UNKNOWN;
@@ -351,3 +353,30 @@ int util__random_bytes(void *bytes, int count)
 #endif
 	return rc;
 }
+
+
+int mosquitto__set_state(struct mosquitto *mosq, enum mosquitto_client_state state)
+{
+	pthread_mutex_lock(&mosq->state_mutex);
+#ifdef WITH_BROKER
+	if(mosq->state != mosq_cs_disused)
+#endif
+	{
+		mosq->state = state;
+	}
+	pthread_mutex_unlock(&mosq->state_mutex);
+
+	return MOSQ_ERR_SUCCESS;
+}
+
+enum mosquitto_client_state mosquitto__get_state(struct mosquitto *mosq)
+{
+	enum mosquitto_client_state state;
+
+	pthread_mutex_lock(&mosq->state_mutex);
+	state = mosq->state;
+	pthread_mutex_unlock(&mosq->state_mutex);
+
+	return state;
+}
+

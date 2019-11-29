@@ -12,7 +12,9 @@ project(mosquitto)
 
 # Only for version 3 and up. cmake_policy(SET CMP0042 NEW)
 
-set (VERSION 1.6.2)
+set (VERSION 1.6.7)
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
 add_definitions (-DCMAKE -DVERSION=\"${VERSION}\")
 
@@ -47,12 +49,21 @@ else (WITH_TLS)
 	set (OPENSSL_INCLUDE_DIR "")
 endif (WITH_TLS)
 
+
+option(WITH_UNIX_SOCKETS "Include Unix Domain Socket support?" ON)
+if (WITH_UNIX_SOCKETS AND NOT WIN32)
+	add_definitions("-DWITH_UNIX_SOCKETS")
+endif (WITH_UNIX_SOCKETS AND NOT WIN32)
+
 option(WITH_SOCKS "Include SOCKS5 support?" ON)
 if (WITH_SOCKS)
 	add_definitions("-DWITH_SOCKS")
 endif (WITH_SOCKS)
 
 option(WITH_SRV "Include SRV lookup support?" OFF)
+
+option(WITH_STATIC_LIBRARIES "Build static versions of the libmosquitto/pp libraries?" OFF)
+option(WITH_PIC "Build the static library with PIC (Position Independent Code) enabled archives?" OFF)
 
 option(WITH_THREADING "Include client library threading support?" ON)
 if (WITH_THREADING)
@@ -120,4 +131,3 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libmosquittopp.pc" DESTINATION "${CMA
 # Testing
 # ========================================
 enable_testing()
-add_test("test" make -C ${mosquitto_SOURCE_DIR}/test test)

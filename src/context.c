@@ -25,6 +25,8 @@ Contributors:
 #include "packet_mosq.h"
 #include "property_mosq.h"
 #include "time_mosq.h"
+#include "util_mosq.h"
+#include "will_mosq.h"
 
 #include "uthash.h"
 
@@ -37,7 +39,7 @@ struct mosquitto *context__init(struct mosquitto_db *db, mosq_sock_t sock)
 	if(!context) return NULL;
 	
 	context->pollfd_index = -1;
-	context__set_state(context, mosq_cs_new);
+	mosquitto__set_state(context, mosq_cs_new);
 	context->sock = sock;
 	context->last_msg_in = mosquitto_time();
 	context->next_msg_out = mosquitto_time() + 60;
@@ -50,6 +52,7 @@ struct mosquitto *context__init(struct mosquitto_db *db, mosq_sock_t sock)
 	context->password = NULL;
 	context->listener = NULL;
 	context->acl_list = NULL;
+	context->retain_available = true;
 
 	/* is_bridge records whether this client is a bridge or not. This could be
 	 * done by looking at context->bridge for bridges that we create ourself,
@@ -188,13 +191,7 @@ void context__send_will(struct mosquitto_db *db, struct mosquitto *ctxt)
 					&ctxt->will->properties);
 		}
 	}
-	if(ctxt->will){
-		mosquitto_property_free_all(&ctxt->will->properties);
-		mosquitto__free(ctxt->will->msg.topic);
-		mosquitto__free(ctxt->will->msg.payload);
-		mosquitto__free(ctxt->will);
-		ctxt->will = NULL;
-	}
+	will__clear(ctxt);
 }
 
 
@@ -202,8 +199,8 @@ void context__disconnect(struct mosquitto_db *db, struct mosquitto *context)
 {
 	net__socket_close(db, context);
 
+	context__send_will(db, context);
 	if(context->session_expiry_interval == 0){
-		context__send_will(db, context);
 
 		if(context->bridge == NULL){
 			if(context->will_delay_interval == 0){
@@ -214,14 +211,14 @@ void context__disconnect(struct mosquitto_db *db, struct mosquitto *context)
 	}else{
 		session_expiry__add(db, context);
 	}
-	context__set_state(context, mosq_cs_disconnected);
+	mosquitto__set_state(context, mosq_cs_disconnected);
 }
 
 void context__add_to_disused(struct mosquitto_db *db, struct mosquitto *context)
 {
 	if(context->state == mosq_cs_disused) return;
 
-	context__set_state(context, mosq_cs_disused);
+	mosquitto__set_state(context, mosq_cs_disused);
 
 	if(context->id){
 		context__remove_from_by_id(db, context);
@@ -279,10 +276,3 @@ void context__remove_from_by_id(struct mosquitto_db *db, struct mosquitto *conte
 	}
 }
 
-
-void context__set_state(struct mosquitto *context, enum mosquitto_client_state state)
-{
-	if(context->state != mosq_cs_disused){
-		context->state = state;
-	}
-}

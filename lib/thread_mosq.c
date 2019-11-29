@@ -22,12 +22,13 @@ Contributors:
 
 #include "mosquitto_internal.h"
 #include "net_mosq.h"
+#include "util_mosq.h"
 
 void *mosquitto__thread_main(void *obj);
 
 int mosquitto_loop_start(struct mosquitto *mosq)
 {
-#ifdef WITH_THREADING
+#if defined(WITH_THREADING) && defined(HAVE_PTHREAD_CANCEL)
 	if(!mosq || mosq->threaded != mosq_ts_none) return MOSQ_ERR_INVAL;
 
 	mosq->threaded = mosq_ts_self;
@@ -43,7 +44,7 @@ int mosquitto_loop_start(struct mosquitto *mosq)
 
 int mosquitto_loop_stop(struct mosquitto *mosq, bool force)
 {
-#ifdef WITH_THREADING
+#if defined(WITH_THREADING) && defined(HAVE_PTHREAD_CANCEL)
 #  ifndef WITH_BROKER
 	char sockpair_data = 0;
 #  endif
@@ -89,9 +90,7 @@ void *mosquitto__thread_main(void *obj)
 	if(!mosq) return NULL;
 
 	do{
-		pthread_mutex_lock(&mosq->state_mutex);
-		state = mosq->state;
-		pthread_mutex_unlock(&mosq->state_mutex);
+		state = mosquitto__get_state(mosq);
 		if(state == mosq_cs_new){
 #ifdef WIN32
 			Sleep(10);
@@ -102,10 +101,6 @@ void *mosquitto__thread_main(void *obj)
 			break;
 		}
 	}while(1);
-
-	if(state == mosq_cs_connect_async){
-		mosquitto_reconnect(mosq);
-	}
 
 	if(!mosq->keepalive){
 		/* Sleep for a day if keepalive disabled. */

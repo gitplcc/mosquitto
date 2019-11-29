@@ -34,6 +34,7 @@ Contributors:
 #include "net_mosq.h"
 #include "packet_mosq.h"
 #include "read_handle.h"
+#include "util_mosq.h"
 #ifdef WITH_BROKER
 #  include "sys_tree.h"
 #  include "send_mosq.h"
@@ -97,6 +98,38 @@ void packet__cleanup(struct mosquitto__packet *packet)
 	packet->to_process = 0;
 	packet->pos = 0;
 }
+
+
+void packet__cleanup_all(struct mosquitto *mosq)
+{
+	struct mosquitto__packet *packet;
+
+	pthread_mutex_lock(&mosq->current_out_packet_mutex);
+	pthread_mutex_lock(&mosq->out_packet_mutex);
+
+	/* Out packet cleanup */
+	if(mosq->out_packet && !mosq->current_out_packet){
+		mosq->current_out_packet = mosq->out_packet;
+		mosq->out_packet = mosq->out_packet->next;
+	}
+	while(mosq->current_out_packet){
+		packet = mosq->current_out_packet;
+		/* Free data and reset values */
+		mosq->current_out_packet = mosq->out_packet;
+		if(mosq->out_packet){
+			mosq->out_packet = mosq->out_packet->next;
+		}
+
+		packet__cleanup(packet);
+		mosquitto__free(packet);
+	}
+
+	packet__cleanup(&mosq->in_packet);
+
+	pthread_mutex_unlock(&mosq->out_packet_mutex);
+	pthread_mutex_unlock(&mosq->current_out_packet_mutex);
+}
+
 
 int packet__queue(struct mosquitto *mosq, struct mosquitto__packet *packet)
 {
@@ -170,6 +203,7 @@ int packet__write(struct mosquitto *mosq)
 {
 	ssize_t write_length;
 	struct mosquitto__packet *packet;
+	int state;
 
 	if(!mosq) return MOSQ_ERR_INVAL;
 	if(mosq->sock == INVALID_SOCKET) return MOSQ_ERR_NO_CONN;
@@ -185,10 +219,11 @@ int packet__write(struct mosquitto *mosq)
 	}
 	pthread_mutex_unlock(&mosq->out_packet_mutex);
 
+	state = mosquitto__get_state(mosq);
 #if defined(WITH_TLS) && !defined(WITH_BROKER)
-	if((mosq->state == mosq_cs_connect_pending) || mosq->want_connect){
+	if((state == mosq_cs_connect_pending) || mosq->want_connect){
 #else
-	if(mosq->state == mosq_cs_connect_pending){
+	if(state == mosq_cs_connect_pending){
 #endif
 		pthread_mutex_unlock(&mosq->current_out_packet_mutex);
 		return MOSQ_ERR_SUCCESS;
@@ -207,7 +242,11 @@ int packet__write(struct mosquitto *mosq)
 #ifdef WIN32
 				errno = WSAGetLastError();
 #endif
-				if(errno == EAGAIN || errno == COMPAT_EWOULDBLOCK){
+				if(errno == EAGAIN || errno == COMPAT_EWOULDBLOCK
+#ifdef WIN32
+						|| errno == WSAENOTCONN
+#endif
+						){
 					pthread_mutex_unlock(&mosq->current_out_packet_mutex);
 					return MOSQ_ERR_SUCCESS;
 				}else{
@@ -280,6 +319,7 @@ int packet__read(struct mosquitto *mosq)
 	uint8_t byte;
 	ssize_t read_length;
 	int rc = 0;
+	int state;
 
 	if(!mosq){
 		return MOSQ_ERR_INVAL;
@@ -287,7 +327,9 @@ int packet__read(struct mosquitto *mosq)
 	if(mosq->sock == INVALID_SOCKET){
 		return MOSQ_ERR_NO_CONN;
 	}
-	if(mosq->state == mosq_cs_connect_pending){
+
+	state = mosquitto__get_state(mosq);
+	if(state == mosq_cs_connect_pending){
 		return MOSQ_ERR_SUCCESS;
 	}
 
@@ -312,7 +354,7 @@ int packet__read(struct mosquitto *mosq)
 #ifdef WITH_BROKER
 			G_BYTES_RECEIVED_INC(1);
 			/* Clients must send CONNECT as their first command. */
-			if(!(mosq->bridge) && mosq->state == mosq_cs_new && (byte&0xF0) != CMD_CONNECT){
+			if(!(mosq->bridge) && mosq->state == mosq_cs_connected && (byte&0xF0) != CMD_CONNECT){
 				return MOSQ_ERR_PROTOCOL;
 			}
 #endif

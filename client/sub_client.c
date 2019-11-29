@@ -34,12 +34,14 @@ Contributors:
 #include <mosquitto.h>
 #include <mqtt_protocol.h>
 #include "client_shared.h"
+#include "sub_client_output.h"
 
-static struct mosq_config cfg;
+struct mosq_config cfg;
 bool process_messages = true;
 int msg_count = 0;
 struct mosquitto *mosq = NULL;
 int last_mid = 0;
+static bool timed_out = false;
 
 #ifndef WIN32
 void my_signal_handler(int signum)
@@ -47,11 +49,10 @@ void my_signal_handler(int signum)
 	if(signum == SIGALRM){
 		process_messages = false;
 		mosquitto_disconnect_v5(mosq, MQTT_RC_DISCONNECT_WITH_WILL_MSG, cfg.disconnect_props);
+		timed_out = true;
 	}
 }
 #endif
-
-void print_message(struct mosq_config *cfg, const struct mosquitto_message *message);
 
 
 void my_publish_callback(struct mosquitto *mosq, void *obj, int mid, int reason_code, const mosquitto_property *properties)
@@ -96,7 +97,7 @@ void my_message_callback(struct mosquitto *mosq, void *obj, const struct mosquit
 		}
 	}
 
-	print_message(&cfg, message);
+	print_message(&cfg, message, properties);
 
 	if(cfg.msg_count>0){
 		msg_count++;
@@ -124,11 +125,15 @@ void my_connect_callback(struct mosquitto *mosq, void *obj, int result, int flag
 			mosquitto_unsubscribe_v5(mosq, NULL, cfg.unsub_topics[i], cfg.unsubscribe_props);
 		}
 	}else{
-		if(result && !cfg.quiet){
+		if(result){
 			if(cfg.protocol_version == MQTT_PROTOCOL_V5){
-				fprintf(stderr, "%s\n", mosquitto_reason_string(result));
+				if(result == MQTT_RC_UNSUPPORTED_PROTOCOL_VERSION){
+					err_printf(&cfg, "Connection error: %s. Try connecting to an MQTT v5 broker, or use MQTT v3.x mode.\n", mosquitto_reason_string(result));
+				}else{
+					err_printf(&cfg, "Connection error: %s\n", mosquitto_reason_string(result));
+				}
 			}else{
-				fprintf(stderr, "%s\n", mosquitto_connack_string(result));
+				err_printf(&cfg, "Connection error: %s\n", mosquitto_connack_string(result));
 			}
 		}
 		mosquitto_disconnect_v5(mosq, 0, cfg.disconnect_props);
@@ -138,14 +143,21 @@ void my_connect_callback(struct mosquitto *mosq, void *obj, int result, int flag
 void my_subscribe_callback(struct mosquitto *mosq, void *obj, int mid, int qos_count, const int *granted_qos)
 {
 	int i;
-
+	bool some_sub_allowed = (granted_qos[0] < 128);
+	bool should_print = cfg.debug && !cfg.quiet;
 	UNUSED(obj);
 
-	if(!cfg.quiet) printf("Subscribed (mid: %d): %d", mid, granted_qos[0]);
+	if(should_print) printf("Subscribed (mid: %d): %d", mid, granted_qos[0]);
 	for(i=1; i<qos_count; i++){
-		if(!cfg.quiet) printf(", %d", granted_qos[i]);
+		if(should_print) printf(", %d", granted_qos[i]);
+		some_sub_allowed |= (granted_qos[i] < 128);
 	}
-	if(!cfg.quiet) printf("\n");
+	if(should_print) printf("\n");
+
+	if(some_sub_allowed == false){
+		mosquitto_disconnect_v5(mosq, 0, cfg.disconnect_props);
+		err_printf(&cfg, "All subscription requests were denied.\n");
+	}
 
 	if(cfg.exit_after_sub){
 		mosquitto_disconnect_v5(mosq, 0, cfg.disconnect_props);
@@ -168,7 +180,7 @@ void print_usage(void)
 	mosquitto_lib_version(&major, &minor, &revision);
 	printf("mosquitto_sub is a simple mqtt client that will subscribe to a set of topics and print all messages it receives.\n");
 	printf("mosquitto_sub version %s running on libmosquitto %d.%d.%d.\n\n", VERSION, major, minor, revision);
-	printf("Usage: mosquitto_sub {[-h host] [-p port] [-u username [-P password]] -t topic | -L URL [-t topic]}\n");
+	printf("Usage: mosquitto_sub {[-h host] [--unix path] [-p port] [-u username] [-P password] -t topic | -L URL [-t topic]}\n");
 	printf("                     [-c] [-k keepalive] [-q qos]\n");
 	printf("                     [-C msg_count] [-E] [-R] [--retained-only] [--remove-retained] [-T filter_out] [-U topic ...]\n");
 	printf("                     [-F format]\n");
@@ -231,11 +243,15 @@ void print_usage(void)
 	printf(" -W : Specifies a timeout in seconds how long to process incoming MQTT messages.\n");
 #endif
 	printf(" --help : display this message.\n");
+	printf(" --pretty : print formatted output rather than minimised output when using the\n");
+	printf("            JSON output format option.\n");
 	printf(" --quiet : don't print error messages.\n");
 	printf(" --retained-only : only handle messages with the retained flag set, and exit when the\n");
 	printf("                   first non-retained message is received.\n");
 	printf(" --remove-retained : send a message to the server to clear any received retained messages\n");
 	printf("                     Use -T to filter out messages you do not want to be cleared.\n");
+	printf(" --unix : connect to a broker through a unix domain socket instead of a TCP socket,\n");
+	printf("          e.g. /tmp/mosquitto.sock\n");
 	printf(" --will-payload : payload for the client Will, which is sent by the broker in case of\n");
 	printf("                  unexpected disconnection. If not given and will-topic is set, a zero\n");
 	printf("                  length message will be sent.\n");
@@ -278,8 +294,6 @@ int main(int argc, char *argv[])
 #ifndef WIN32
 		struct sigaction sigact;
 #endif
-	
-	memset(&cfg, 0, sizeof(struct mosq_config));
 
 	mosquitto_lib_init();
 
@@ -307,10 +321,10 @@ int main(int argc, char *argv[])
 	if(!mosq){
 		switch(errno){
 			case ENOMEM:
-				if(!cfg.quiet) fprintf(stderr, "Error: Out of memory.\n");
+				err_printf(&cfg, "Error: Out of memory.\n");
 				break;
 			case EINVAL:
-				if(!cfg.quiet) fprintf(stderr, "Error: Invalid id and/or clean_session.\n");
+				err_printf(&cfg, "Error: Invalid id and/or clean_session.\n");
 				break;
 		}
 		goto cleanup;
@@ -320,8 +334,8 @@ int main(int argc, char *argv[])
 	}
 	if(cfg.debug){
 		mosquitto_log_callback_set(mosq, my_log_callback);
-		mosquitto_subscribe_callback_set(mosq, my_subscribe_callback);
 	}
+	mosquitto_subscribe_callback_set(mosq, my_subscribe_callback);
 	mosquitto_connect_v5_callback_set(mosq, my_connect_callback);
 	mosquitto_message_v5_callback_set(mosq, my_message_callback);
 
@@ -354,8 +368,11 @@ int main(int argc, char *argv[])
 		rc = 0;
 	}
 	client_config_cleanup(&cfg);
-	if(rc){
-		fprintf(stderr, "Error: %s\n", mosquitto_strerror(rc));
+	if(timed_out){
+		err_printf(&cfg, "Timed out\n");
+		return MOSQ_ERR_TIMEOUT;
+	}else if(rc){
+		err_printf(&cfg, "Error: %s\n", mosquitto_strerror(rc));
 	}
 	return rc;
 

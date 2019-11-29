@@ -35,6 +35,7 @@ Contributors:
 #include <mqtt_protocol.h>
 #include "client_shared.h"
 #include "pub_shared.h"
+#include "sub_client_output.h"
 
 enum rr__state {
 	rr_s_new,
@@ -51,6 +52,7 @@ struct mosq_config cfg;
 bool process_messages = true;
 int msg_count = 0;
 struct mosquitto *mosq = NULL;
+static bool timed_out = false;
 
 #ifndef WIN32
 void my_signal_handler(int signum)
@@ -58,11 +60,10 @@ void my_signal_handler(int signum)
 	if(signum == SIGALRM){
 		process_messages = false;
 		mosquitto_disconnect_v5(mosq, MQTT_RC_DISCONNECT_WITH_WILL_MSG, cfg.disconnect_props);
+		timed_out = true;
 	}
 }
 #endif
-
-void print_message(struct mosq_config *cfg, const struct mosquitto_message *message);
 
 
 int my_publish(struct mosquitto *mosq, int *mid, const char *topic, int payloadlen, void *payload, int qos, bool retain)
@@ -73,7 +74,7 @@ int my_publish(struct mosquitto *mosq, int *mid, const char *topic, int payloadl
 
 void my_message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_message *message, const mosquitto_property *properties)
 {
-	print_message(&cfg, message);
+	print_message(&cfg, message, properties);
 	switch(cfg.pub_mode){
 		case MSGMODE_CMD:
 		case MSGMODE_FILE:
@@ -121,8 +122,12 @@ void my_connect_callback(struct mosquitto *mosq, void *obj, int result, int flag
 		mosquitto_subscribe_v5(mosq, NULL, cfg.response_topic, cfg.qos, 0, cfg.subscribe_props);
 	}else{
 		client_state = rr_s_disconnect;
-		if(result && !cfg.quiet){
-			fprintf(stderr, "%s\n", mosquitto_connack_string(result));
+		if(result){
+			if(result == MQTT_RC_UNSUPPORTED_PROTOCOL_VERSION){
+				err_printf(&cfg, "Connection error: %s. mosquitto_rr only supports connecting to an MQTT v5 broker\n", mosquitto_reason_string(result));
+			}else{
+				err_printf(&cfg, "Connection error: %s\n", mosquitto_reason_string(result));
+			}
 		}
 		mosquitto_disconnect_v5(mosq, 0, cfg.disconnect_props);
 	}
@@ -135,10 +140,8 @@ void my_subscribe_callback(struct mosquitto *mosq, void *obj, int mid, int qos_c
 		client_state = rr_s_ready_to_publish;
 	}else{
 		client_state = rr_s_disconnect;
-		if(!cfg.quiet){
-			fprintf(stderr, "%s\n", mosquitto_reason_string(granted_qos[0]));
-			mosquitto_disconnect_v5(mosq, 0, cfg.disconnect_props);
-		}
+		err_printf(&cfg, "%s\n", mosquitto_reason_string(granted_qos[0]));
+		mosquitto_disconnect_v5(mosq, 0, cfg.disconnect_props);
 	}
 }
 
@@ -158,7 +161,7 @@ void print_usage(void)
 	printf("             Defaults to MQTT v5, where the Request-Response feature will be used, but v3.1.1 can also be used\n");
 	printf("             with v3.1.1 brokers.\n");
 	printf("mosquitto_rr version %s running on libmosquitto %d.%d.%d.\n\n", VERSION, major, minor, revision);
-	printf("Usage: mosquitto_rr {[-h host] [-p port] [-u username [-P password]] -t topic | -L URL} -e response-topic\n");
+	printf("Usage: mosquitto_rr {[-h host] [--unix path] [-p port] [-u username] [-P password] -t topic | -L URL} -e response-topic\n");
 	printf("                    [-c] [-k keepalive] [-q qos] [-R]\n");
 	printf("                    [-F format]\n");
 #ifndef WIN32
@@ -214,7 +217,11 @@ void print_usage(void)
 	printf(" -W : Specifies a timeout in seconds how long to wait for a response.\n");
 #endif
 	printf(" --help : display this message.\n");
+	printf(" --pretty : print formatted output rather than minimised output when using the\n");
+	printf("            JSON output format option.\n");
 	printf(" --quiet : don't print error messages.\n");
+	printf(" --unix : connect to a broker through a unix domain socket instead of a TCP socket,\n");
+	printf("          e.g. /tmp/mosquitto.sock\n");
 	printf(" --will-payload : payload for the client Will, which is sent by the broker in case of\n");
 	printf("                  unexpected disconnection. If not given and will-topic is set, a zero\n");
 	printf("                  length message will be sent.\n");
@@ -254,8 +261,6 @@ int main(int argc, char *argv[])
 #ifndef WIN32
 		struct sigaction sigact;
 #endif
-	
-	memset(&cfg, 0, sizeof(struct mosq_config));
 
 	mosquitto_lib_init();
 
@@ -282,7 +287,7 @@ int main(int argc, char *argv[])
 	}
 	rc = mosquitto_property_check_all(CMD_PUBLISH, cfg.publish_props);
 	if(rc){
-		if(!cfg.quiet) fprintf(stderr, "Error in PUBLISH properties: Duplicate response topic.\n");
+		err_printf(&cfg, "Error in PUBLISH properties: Duplicate response topic.\n");
 		goto cleanup;
 	}
 
@@ -294,10 +299,10 @@ int main(int argc, char *argv[])
 	if(!mosq){
 		switch(errno){
 			case ENOMEM:
-				if(!cfg.quiet) fprintf(stderr, "Error: Out of memory.\n");
+				err_printf(&cfg, "Error: Out of memory.\n");
 				break;
 			case EINVAL:
-				if(!cfg.quiet) fprintf(stderr, "Error: Invalid id and/or clean_session.\n");
+				err_printf(&cfg, "Error: Invalid id and/or clean_session.\n");
 				break;
 		}
 		goto cleanup;
@@ -359,8 +364,11 @@ int main(int argc, char *argv[])
 		rc = 0;
 	}
 	client_config_cleanup(&cfg);
-	if(rc){
-		fprintf(stderr, "Error: %s\n", mosquitto_strerror(rc));
+	if(timed_out){
+		err_printf(&cfg, "Timed out\n");
+		return MOSQ_ERR_TIMEOUT;
+	}else if(rc){
+		err_printf(&cfg, "Error: %s\n", mosquitto_strerror(rc));
 	}
 	return rc;
 

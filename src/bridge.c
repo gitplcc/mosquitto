@@ -100,6 +100,8 @@ int bridge__new(struct mosquitto_db *db, struct mosquitto__bridge *bridge)
 	new_context->tls_version = new_context->bridge->tls_version;
 	new_context->tls_insecure = new_context->bridge->tls_insecure;
 	new_context->tls_alpn = new_context->bridge->tls_alpn;
+	new_context->tls_engine = db->config->default_listener.tls_engine;
+	new_context->tls_keyform = db->config->default_listener.tls_keyform;
 #ifdef FINAL_WITH_TLS_PSK
 	new_context->tls_psk_identity = new_context->bridge->tls_psk_identity;
 	new_context->tls_psk = new_context->bridge->tls_psk;
@@ -107,6 +109,7 @@ int bridge__new(struct mosquitto_db *db, struct mosquitto__bridge *bridge)
 #endif
 
 	bridge->try_private_accepted = true;
+	new_context->retain_available = bridge->outgoing_retain;
 	new_context->protocol = bridge->protocol_version;
 
 	bridges = mosquitto__realloc(db->bridges, (db->bridge_count+1)*sizeof(struct mosquitto *));
@@ -137,7 +140,7 @@ int bridge__connect_step1(struct mosquitto_db *db, struct mosquitto *context)
 
 	if(!context || !context->bridge) return MOSQ_ERR_INVAL;
 
-	context__set_state(context, mosq_cs_new);
+	mosquitto__set_state(context, mosq_cs_new);
 	context->sock = INVALID_SOCKET;
 	context->last_msg_in = mosquitto_time();
 	context->next_msg_out = mosquitto_time() + context->bridge->keepalive;
@@ -171,7 +174,7 @@ int bridge__connect_step1(struct mosquitto_db *db, struct mosquitto *context)
 						&db->subs) > 0){
 				return 1;
 			}
-			sub__retain_queue(db, context,
+			retain__queue(db, context,
 					context->bridge->topics[i].local_topic,
 					context->bridge->topics[i].qos, 0);
 		}
@@ -257,7 +260,7 @@ int bridge__connect_step2(struct mosquitto_db *db, struct mosquitto *context)
 	HASH_ADD(hh_sock, db->contexts_by_sock, sock, sizeof(context->sock), context);
 
 	if(rc == MOSQ_ERR_CONN_PENDING){
-		context__set_state(context, mosq_cs_connect_pending);
+		mosquitto__set_state(context, mosq_cs_connect_pending);
 	}
 	return rc;
 }
@@ -316,7 +319,7 @@ int bridge__connect(struct mosquitto_db *db, struct mosquitto *context)
 
 	if(!context || !context->bridge) return MOSQ_ERR_INVAL;
 
-	context__set_state(context, mosq_cs_new);
+	mosquitto__set_state(context, mosq_cs_new);
 	context->sock = INVALID_SOCKET;
 	context->last_msg_in = mosquitto_time();
 	context->next_msg_out = mosquitto_time() + context->bridge->keepalive;
@@ -410,7 +413,7 @@ int bridge__connect(struct mosquitto_db *db, struct mosquitto *context)
 
 		return rc;
 	}else if(rc == MOSQ_ERR_CONN_PENDING){
-		context__set_state(context, mosq_cs_connect_pending);
+		mosquitto__set_state(context, mosq_cs_connect_pending);
 	}
 
 	HASH_ADD(hh_sock, db->contexts_by_sock, sock, sizeof(context->sock), context);
@@ -435,6 +438,83 @@ int bridge__connect(struct mosquitto_db *db, struct mosquitto *context)
 	}
 }
 #endif
+
+
+int bridge__on_connect(struct mosquitto_db *db, struct mosquitto *context)
+{
+	int i;
+	char *notification_topic;
+	int notification_topic_len;
+	char notification_payload;
+	int sub_opts;
+	bool retain = true;
+
+	if(context->bridge->notifications){
+		if(!context->retain_available){
+			retain = false;
+		}
+		notification_payload = '1';
+		if(context->bridge->notification_topic){
+			if(!context->bridge->notifications_local_only){
+				if(send__real_publish(context, mosquitto__mid_generate(context),
+						context->bridge->notification_topic, 1, &notification_payload, 1, retain, 0, NULL, NULL, 0)){
+
+					return 1;
+				}
+			}
+			db__messages_easy_queue(db, context, context->bridge->notification_topic, 1, 1, &notification_payload, 1, 0, NULL);
+		}else{
+			notification_topic_len = strlen(context->bridge->remote_clientid)+strlen("$SYS/broker/connection//state");
+			notification_topic = mosquitto__malloc(sizeof(char)*(notification_topic_len+1));
+			if(!notification_topic) return MOSQ_ERR_NOMEM;
+
+			snprintf(notification_topic, notification_topic_len+1, "$SYS/broker/connection/%s/state", context->bridge->remote_clientid);
+			notification_payload = '1';
+			if(!context->bridge->notifications_local_only){
+				if(send__real_publish(context, mosquitto__mid_generate(context),
+						notification_topic, 1, &notification_payload, 1, retain, 0, NULL, NULL, 0)){
+
+					mosquitto__free(notification_topic);
+					return 1;
+				}
+			}
+			db__messages_easy_queue(db, context, notification_topic, 1, 1, &notification_payload, 1, 0, NULL);
+			mosquitto__free(notification_topic);
+		}
+	}
+	for(i=0; i<context->bridge->topic_count; i++){
+		if(context->bridge->topics[i].direction == bd_in || context->bridge->topics[i].direction == bd_both){
+			sub_opts = context->bridge->topics[i].qos;
+			if(context->bridge->protocol_version == mosq_p_mqtt5){
+				sub_opts = sub_opts
+					| MQTT_SUB_OPT_NO_LOCAL
+					| MQTT_SUB_OPT_RETAIN_AS_PUBLISHED
+					| MQTT_SUB_OPT_SEND_RETAIN_ALWAYS;
+			}
+			if(send__subscribe(context, NULL, 1, &context->bridge->topics[i].remote_topic, sub_opts, NULL)){
+				return 1;
+			}
+		}else{
+			if(context->bridge->attempt_unsubscribe){
+				if(send__unsubscribe(context, NULL, 1, &context->bridge->topics[i].remote_topic, NULL)){
+					/* direction = inwards only. This means we should not be subscribed
+					* to the topic. It is possible that we used to be subscribed to
+					* this topic so unsubscribe. */
+					return 1;
+				}
+			}
+		}
+	}
+	for(i=0; i<context->bridge->topic_count; i++){
+		if(context->bridge->topics[i].direction == bd_out || context->bridge->topics[i].direction == bd_both){
+			retain__queue(db, context,
+					context->bridge->topics[i].local_topic,
+					context->bridge->topics[i].qos, 0);
+		}
+	}
+
+	return MOSQ_ERR_SUCCESS;
+}
 
 
 int bridge__register_local_connections(struct mosquitto_db *db)
@@ -758,63 +838,4 @@ void bridge_check(struct mosquitto_db *db, struct pollfd *pollfds, int *pollfd_i
 	}
 }
 
-
-int bridge__remap_topic(struct mosquitto *context, char **topic)
-{
-	struct mosquitto__bridge_topic *cur_topic;
-	char *topic_temp;
-	int i;
-	int len;
-	int rc;
-	bool match;
-
-	if(context->bridge && context->bridge->topics && context->bridge->topic_remapping){
-		for(i=0; i<context->bridge->topic_count; i++){
-			cur_topic = &context->bridge->topics[i];
-			if((cur_topic->direction == bd_both || cur_topic->direction == bd_in)
-					&& (cur_topic->remote_prefix || cur_topic->local_prefix)){
-
-				/* Topic mapping required on this topic if the message matches */
-
-				rc = mosquitto_topic_matches_sub(cur_topic->remote_topic, *topic, &match);
-				if(rc){
-					mosquitto__free(*topic);
-					return rc;
-				}
-				if(match){
-					if(cur_topic->remote_prefix){
-						/* This prefix needs removing. */
-						if(!strncmp(cur_topic->remote_prefix, *topic, strlen(cur_topic->remote_prefix))){
-							topic_temp = mosquitto__strdup((*topic)+strlen(cur_topic->remote_prefix));
-							if(!topic_temp){
-								mosquitto__free(*topic);
-								return MOSQ_ERR_NOMEM;
-							}
-							mosquitto__free(*topic);
-							*topic = topic_temp;
-						}
-					}
-
-					if(cur_topic->local_prefix){
-						/* This prefix needs adding. */
-						len = strlen(*topic) + strlen(cur_topic->local_prefix)+1;
-						topic_temp = mosquitto__malloc(len+1);
-						if(!topic_temp){
-							mosquitto__free(*topic);
-							return MOSQ_ERR_NOMEM;
-						}
-						snprintf(topic_temp, len, "%s%s", cur_topic->local_prefix, *topic);
-						topic_temp[len] = '\0';
-
-						mosquitto__free(*topic);
-						*topic = topic_temp;
-					}
-					break;
-				}
-			}
-		}
-	}
-
-	return MOSQ_ERR_SUCCESS;
-}
 #endif

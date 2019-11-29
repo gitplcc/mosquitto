@@ -58,7 +58,7 @@ To build from source the recommended route for end users is to download the
 archive from <https://mosquitto.org/download/>.
 
 On Windows and Mac, use `cmake` to build. On other platforms, just run `make`
-to build. For Windows, see also `readme-windows.md`.
+to build. For Windows, see also `readme-windows.txt`.
 
 If you are building from the git repository then the documentation will not
 already be built. Use `make binary` to skip building the man pages, or install
@@ -71,6 +71,7 @@ already be built. Use `make binary` to skip building the man pages, or install
 * openssl (libssl-dev on Debian based systems) - disable with `make WITH_TLS=no`
 * xsltproc (xsltproc and docbook-xsl on Debian based systems) - only needed when building from git sources - disable with `make WITH_DOCS=no`
 * uthash / utlist - bundled versions of these headers are provided, disable their use with `make WITH_BUNDLED_DEPS=no`
+* cJSON - for client JSON output support. Disable with `make WITH_CJSON=no` Auto detected with CMake.
 
 Equivalent options for enabling/disabling features are available when using the CMake build.
 

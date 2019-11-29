@@ -54,7 +54,7 @@ int handle__publish(struct mosquitto_db *db, struct mosquitto *context)
 	int topic_alias = -1;
 	uint8_t reason_code = 0;
 
-	if(context->state != mosq_cs_connected){
+	if(context->state != mosq_cs_active){
 		return MOSQ_ERR_PROTOCOL;
 	}
 
@@ -184,7 +184,7 @@ int handle__publish(struct mosquitto_db *db, struct mosquitto *context)
 	}
 
 #ifdef WITH_BRIDGE
-	rc = bridge__remap_topic(context, &topic);
+	rc = bridge__remap_topic_in(context, &topic);
 	if(rc) return rc;
 
 #endif
@@ -281,7 +281,6 @@ int handle__publish(struct mosquitto_db *db, struct mosquitto *context)
 			break;
 		case 2:
 			if(dup == 0){
-				util__decrement_receive_quota(context);
 				res = db__message_insert(db, context, mid, mosq_md_in, qos, retain, stored, NULL);
 			}else{
 				res = 0;

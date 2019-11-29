@@ -48,7 +48,7 @@ extern "C" {
 
 #define LIBMOSQUITTO_MAJOR 1
 #define LIBMOSQUITTO_MINOR 6
-#define LIBMOSQUITTO_REVISION 2
+#define LIBMOSQUITTO_REVISION 7
 /* LIBMOSQUITTO_VERSION_NUMBER looks like 1002001 for e.g. version 1.2.1. */
 #define LIBMOSQUITTO_VERSION_NUMBER (LIBMOSQUITTO_MAJOR*1000000+LIBMOSQUITTO_MINOR*1000+LIBMOSQUITTO_REVISION)
 
@@ -98,6 +98,7 @@ enum mosq_err_t {
 	MOSQ_ERR_QOS_NOT_SUPPORTED = 24,
 	MOSQ_ERR_OVERSIZE_PACKET = 25,
 	MOSQ_ERR_OCSP = 26,
+	MOSQ_ERR_TIMEOUT = 27,
 };
 
 /* Option values */
@@ -921,8 +922,9 @@ libmosq_EXPORT int mosquitto_subscribe_v5(struct mosquitto *mosq, int *mid, cons
  *	       familiar with this, just think of it as a safer "char **",
  *	       equivalent to "const char *" for a simple string pointer.
  *	qos -  the requested Quality of Service for each subscription.
- *	options - options to apply to this subscription, OR'd together. Set to 0 to
- *	       use the default options, otherwise choose from the list:
+ *	options - options to apply to this subscription, OR'd together. This
+ *	          argument is not used for MQTT v3 susbcriptions. Set to 0 to use
+ *	          the default options, otherwise choose from the list:
  *	       MQTT_SUB_OPT_NO_LOCAL - with this option set, if this client
  *	                     publishes to a topic to which it is subscribed, the
  *	                     broker will not publish the message back to the
@@ -2693,6 +2695,44 @@ libmosq_EXPORT int mosquitto_property_add_string(mosquitto_property **proplist, 
  */
 libmosq_EXPORT int mosquitto_property_add_string_pair(mosquitto_property **proplist, int identifier, const char *name, const char *value);
 
+
+/*
+ * Function: mosquitto_property_identifier
+ *
+ * Return the property identifier for a single property.
+ *
+ * Parameters:
+ *	property - pointer to a valid mosquitto_property pointer.
+ *
+ * Returns:
+ *  A valid property identifier on success
+ *  0 - on error
+ */
+libmosq_EXPORT int mosquitto_property_identifier(const mosquitto_property *property);
+
+
+/*
+ * Function: mosquitto_property_next
+ *
+ * Return the next property in a property list. Use to iterate over a property
+ * list, e.g.:
+ *
+ * for(prop = proplist; prop != NULL; prop = mosquitto_property_next(prop)){
+ *		if(mosquitto_property_identifier(prop) == MQTT_PROP_CONTENT_TYPE){
+ *			...
+ *		}
+ * }
+ *
+ * Parameters:
+ *	proplist - pointer to mosquitto_property pointer, the list of properties
+ *
+ * Returns:
+ *	Pointer to the next item in the list
+ *	NULL, if proplist is NULL, or if there are no more items in the list.
+ */
+libmosq_EXPORT const mosquitto_property *mosquitto_property_next(const mosquitto_property *proplist);
+
+
 /*
  * Function: mosquitto_property_read_byte
  *
@@ -2962,6 +3002,23 @@ libmosq_EXPORT int mosquitto_property_check_command(int command, int identifier)
  *	MOSQ_ERR_PROTOCOL - if any property is invalid
  */
 libmosq_EXPORT int mosquitto_property_check_all(int command, const mosquitto_property *properties);
+
+/*
+ * Function: mosquitto_property_identifier_to_string
+ *
+ * Return the property name as a string for a property identifier.
+ * The property name is as defined in the MQTT specification, with - as a
+ * separator, for example: payload-format-indicator.
+ *
+ * Parameters:
+ *	identifier - valid MQTT property identifier integer
+ *
+ * Returns:
+ *  A const string to the property name on success
+ *  NULL on failure
+ */
+libmosq_EXPORT const char *mosquitto_property_identifier_to_string(int identifier);
+
 
 /* Function: mosquitto_string_to_property_info
  *

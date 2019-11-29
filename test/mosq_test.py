@@ -316,7 +316,7 @@ def to_string(packet):
         (cmd, rl) = struct.unpack('!BB', packet)
         return "AUTH, rl="+str(rl)
 
-def gen_connect(client_id, clean_session=True, keepalive=60, username=None, password=None, will_topic=None, will_qos=0, will_retain=False, will_payload=b"", proto_ver=4, connect_reserved=False, properties=b"", will_properties=b""):
+def gen_connect(client_id, clean_session=True, keepalive=60, username=None, password=None, will_topic=None, will_qos=0, will_retain=False, will_payload=b"", proto_ver=4, connect_reserved=False, properties=b"", will_properties=b"", session_expiry=-1):
     if (proto_ver&0x7F) == 3 or proto_ver == 0:
         remaining_length = 12
     elif (proto_ver&0x7F) == 4 or proto_ver == 5:
@@ -341,6 +341,10 @@ def gen_connect(client_id, clean_session=True, keepalive=60, username=None, pass
     if proto_ver == 5:
         if properties == b"":
             properties += mqtt5_props.gen_uint16_prop(mqtt5_props.PROP_RECEIVE_MAXIMUM, 20)
+
+        if session_expiry != -1:
+            properties += mqtt5_props.gen_uint32_prop(mqtt5_props.PROP_SESSION_EXPIRY_INTERVAL, session_expiry)
+
         properties = mqtt5_props.prop_finalise(properties)
         remaining_length += len(properties)
 
@@ -478,19 +482,25 @@ def gen_pubrel(mid, dup=False, proto_ver=4, reason_code=-1, properties=None):
 def gen_pubcomp(mid, proto_ver=4, reason_code=-1, properties=None):
     return _gen_command_with_mid(112, mid, proto_ver, reason_code, properties)
 
+
 def gen_subscribe(mid, topic, qos, proto_ver=4, properties=b""):
     topic = topic.encode("utf-8")
+    packet = struct.pack("!B", 130)
     if proto_ver == 5:
         if properties == b"":
-            pack_format = "!BBHBH"+str(len(topic))+"sB"
-            return struct.pack(pack_format, 130, 2+1+2+len(topic)+1, mid, 0, len(topic), topic, qos)
+            packet += pack_remaining_length(2+1+2+len(topic)+1)
+            pack_format = "!HBH"+str(len(topic))+"sB"
+            return packet + struct.pack(pack_format, mid, 0, len(topic), topic, qos)
         else:
             properties = mqtt5_props.prop_finalise(properties)
-            pack_format = "!BBH"+str(len(properties))+"s"+"H"+str(len(topic))+"sB"
-            return struct.pack(pack_format, 130, 2+1+2+len(topic)+len(properties), mid, properties, len(topic), topic, qos)
+            packet += pack_remaining_length(2+1+2+len(topic)+len(properties))
+            pack_format = "!H"+str(len(properties))+"s"+"H"+str(len(topic))+"sB"
+            return packet + struct.pack(pack_format, mid, properties, len(topic), topic, qos)
     else:
-        pack_format = "!BBHH"+str(len(topic))+"sB"
-        return struct.pack(pack_format, 130, 2+2+len(topic)+1, mid, len(topic), topic, qos)
+        packet += pack_remaining_length(2+2+len(topic)+1)
+        pack_format = "!HH"+str(len(topic))+"sB"
+        return packet + struct.pack(pack_format, mid, len(topic), topic, qos)
+
 
 def gen_suback(mid, qos, proto_ver=4):
     if proto_ver == 5:
@@ -601,6 +611,10 @@ def get_lib_port():
         return int(sys.argv[2])
     else:
         return 1888
+
+
+def do_ping(sock, error_string="pingresp"):
+     do_send_receive(sock, gen_pingreq(), gen_pingresp(), error_string)
 
 
 @atexit.register

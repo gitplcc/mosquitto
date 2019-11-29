@@ -94,7 +94,7 @@ enum mosquitto_client_state {
 	mosq_cs_new = 0,
 	mosq_cs_connected = 1,
 	mosq_cs_disconnecting = 2,
-	mosq_cs_connect_async = 3,
+	mosq_cs_active = 3,
 	mosq_cs_connect_pending = 4,
 	mosq_cs_connect_srv = 5,
 	mosq_cs_disconnect_ws = 6,
@@ -107,7 +107,6 @@ enum mosquitto_client_state {
 	mosq_cs_socks5_userpass_reply = 13,
 	mosq_cs_socks5_send_userpass = 14,
 	mosq_cs_expiring = 15,
-	mosq_cs_connecting = 16,
 	mosq_cs_duplicate = 17, /* client that has been taken over by another with the same id */
 	mosq_cs_disconnect_with_will = 18,
 	mosq_cs_disused = 19, /* client that has been added to the disused list to be freed */
@@ -180,6 +179,12 @@ enum mosquitto__keyform {
 };
 #endif
 
+struct will_delay_list {
+	struct mosquitto *context;
+	struct will_delay_list *prev;
+	struct will_delay_list *next;
+};
+
 struct mosquitto_msg_data{
 #ifdef WITH_BROKER
 	struct mosquitto_client_msg *inflight;
@@ -224,6 +229,7 @@ struct mosquitto {
 	struct mosquitto__packet *out_packet;
 	struct mosquitto_message_all *will;
 	struct mosquitto__alias *aliases;
+	struct will_delay_list *will_delay_entry;
 	uint32_t maximum_packet_size;
 	int alias_count;
 	uint32_t will_delay_interval;
@@ -319,6 +325,7 @@ struct mosquitto {
 	char *host;
 	int port;
 	char *bind_address;
+	unsigned int reconnects;
 	unsigned int reconnect_delay;
 	unsigned int reconnect_delay_max;
 	bool reconnect_exponential_backoff;
@@ -327,10 +334,9 @@ struct mosquitto {
 #  ifdef WITH_SRV
 	ares_channel achan;
 #  endif
-	uint16_t send_maximum;
-	uint16_t receive_maximum;
 #endif
 	uint8_t maximum_qos;
+	uint8_t retain_available;
 
 #ifdef WITH_BROKER
 	UT_hash_handle hh_id;

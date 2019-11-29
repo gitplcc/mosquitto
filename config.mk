@@ -97,6 +97,12 @@ WITH_BUNDLED_DEPS:=yes
 # Build with coverage options
 WITH_COVERAGE:=no
 
+# Build with unix domain socket support
+WITH_UNIX_SOCKETS:=yes
+
+# Build mosquitto_sub with cJSON support
+WITH_CJSON:=yes
+
 # =============================================================================
 # End of user configuration
 # =============================================================================
@@ -104,7 +110,7 @@ WITH_COVERAGE:=no
 
 # Also bump lib/mosquitto.h, CMakeLists.txt,
 # installer/mosquitto.nsi, installer/mosquitto64.nsi
-VERSION=1.6.2
+VERSION=1.6.7
 
 # Client library SO version. Bump if incompatible API/ABI changes are made.
 SOVERSION=1
@@ -143,7 +149,7 @@ BROKER_LDADD:=
 
 CLIENT_CPPFLAGS:=$(CPPFLAGS) -I.. -I../lib
 CLIENT_CFLAGS:=${CFLAGS} -DVERSION="\"${VERSION}\""
-CLIENT_LDFLAGS:=-L../lib
+CLIENT_LDFLAGS:=$(LDFLAGS) -L../lib
 CLIENT_LDADD:=
 
 PASSWD_LDADD:=
@@ -272,6 +278,12 @@ ifeq ($(WITH_DOCS),yes)
 	MAKE_ALL:=$(MAKE_ALL) docs
 endif
 
+ifeq ($(WITH_UNIX_SOCKETS),yes)
+	BROKER_CPPFLAGS:=$(BROKER_CPPFLAGS) -DWITH_UNIX_SOCKETS
+	LIB_CPPFLAGS:=$(LIB_CPPFLAGS) -DWITH_UNIX_SOCKETS
+	CLIENT_CPPFLAGS:=$(CLIENT_CPPFLAGS) -DWITH_UNIX_SOCKETS
+endif
+
 ifeq ($(WITH_WEBSOCKETS),yes)
 	BROKER_CPPFLAGS:=$(BROKER_CPPFLAGS) -DWITH_WEBSOCKETS
 	BROKER_LDADD:=$(BROKER_LDADD) -lwebsockets
@@ -311,4 +323,9 @@ ifeq ($(WITH_COVERAGE),yes)
 	LIB_LDFLAGS:=$(LIB_LDFLAGS) -coverage
 	CLIENT_CFLAGS:=$(CLIENT_CFLAGS) -coverage
 	CLIENT_LDFLAGS:=$(CLIENT_LDFLAGS) -coverage
+endif
+
+ifeq ($(WITH_CJSON),yes)
+	CLIENT_CFLAGS:=$(CLIENT_CFLAGS) -DWITH_CJSON -I/usr/include/cjson
+	CLIENT_LDADD:=$(CLIENT_LDADD) -lcjson
 endif

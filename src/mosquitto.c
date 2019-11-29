@@ -104,8 +104,17 @@ int drop_privileges(struct mosquitto__config *config, bool temporary)
 		if(config->user && strcmp(config->user, "root")){
 			pwd = getpwnam(config->user);
 			if(!pwd){
-				log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid user '%s'.", config->user);
-				return 1;
+				if(strcmp(config->user, "mosquitto")){
+					log__printf(NULL, MOSQ_LOG_ERR, "Error: Unable to drop privileges to '%s' because this user does not exist.", config->user);
+					return 1;
+				}else{
+					log__printf(NULL, MOSQ_LOG_ERR, "Warning: Unable to drop privileges to '%s' because this user does not exist. Trying 'nobody' instead.", config->user);
+					pwd = getpwnam("nobody");
+					if(!pwd){
+						log__printf(NULL, MOSQ_LOG_ERR, "Error: Unable to drop privileges to 'nobody'.");
+						return 1;
+					}
+				}
 			}
 			if(initgroups(config->user, pwd->pw_gid) == -1){
 				err = strerror(errno);
@@ -368,14 +377,19 @@ int main(int argc, char *argv[])
 
 	log__printf(NULL, MOSQ_LOG_INFO, "mosquitto version %s terminating", VERSION);
 
-#ifdef WITH_WEBSOCKETS
 	for(i=0; i<int_db.config->listener_count; i++){
+#ifdef WITH_WEBSOCKETS
 		if(int_db.config->listeners[i].ws_context){
 			libwebsocket_context_destroy(int_db.config->listeners[i].ws_context);
 		}
 		mosquitto__free(int_db.config->listeners[i].ws_protocol);
-	}
 #endif
+#ifdef WITH_UNIX_SOCKETS
+		if(int_db.config->listeners[i].unix_socket_path != NULL){
+			unlink(int_db.config->listeners[i].unix_socket_path);
+		}
+#endif
+	}
 
 	/* FIXME - this isn't quite right, all wills with will delay zero should be
 	 * sent now, but those with positive will delay should be persisted and

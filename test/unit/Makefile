@@ -24,6 +24,15 @@ LIB_OBJS = memory_mosq.o \
 		   util_topic.o \
 		   utf8_mosq.o
 
+BRIDGE_TOPIC_TEST_OBJS = \
+		bridge_topic_test.o \
+		stubs.o \
+
+BRIDGE_TOPIC_OBJS = \
+		bridge_topic.o \
+		memory_mosq.o \
+		util_topic.o \
+
 PERSIST_READ_TEST_OBJS = \
 		persist_read_test.o \
 		persist_read_stubs.o
@@ -35,6 +44,8 @@ PERSIST_READ_OBJS = \
 		persist_read_v234.o \
 		persist_read_v5.o \
 		property_mosq.o \
+		retain.o \
+		topic_tok.o \
 		utf8_mosq.o \
 		util_mosq.o
 
@@ -52,7 +63,9 @@ PERSIST_WRITE_OBJS = \
 		persist_write.o \
 		persist_write_v5.o \
 		property_mosq.o \
+		retain.o \
 		subs.o \
+		topic_tok.o \
 		utf8_mosq.o \
 		util_mosq.o
 
@@ -63,12 +76,18 @@ check : test
 mosq_test : ${TEST_OBJS} ${LIB_OBJS}
 	$(CROSS_COMPILE)$(CC) $(LDFLAGS) -o $@ $^ $(LDADD)
 
+bridge_topic_test : ${BRIDGE_TOPIC_TEST_OBJS} ${BRIDGE_TOPIC_OBJS}
+	$(CROSS_COMPILE)$(CC) $(LDFLAGS) -o $@ $^ $(LDADD)
+
 persist_read_test : ${PERSIST_READ_TEST_OBJS} ${PERSIST_READ_OBJS}
 	$(CROSS_COMPILE)$(CC) $(LDFLAGS) -o $@ $^ $(LDADD)
 
 persist_write_test : ${PERSIST_WRITE_TEST_OBJS} ${PERSIST_WRITE_OBJS}
 	$(CROSS_COMPILE)$(CC) $(LDFLAGS) -o $@ $^ $(LDADD)
 
+
+bridge_topic.o : ../../src/bridge_topic.c
+	$(CROSS_COMPILE)$(CC) $(CPPFLAGS) $(CFLAGS) -DWITH_BROKER -DWITH_BRIDGE -c -o $@ $^
 
 database.o : ../../src/database.c
 	$(CROSS_COMPILE)$(CC) $(CPPFLAGS) $(CFLAGS) -DWITH_BROKER -DWITH_PERSISTENCE -c -o $@ $^
@@ -97,7 +116,13 @@ persist_write_v5.o : ../../src/persist_write_v5.c
 property_mosq.o : ../../lib/property_mosq.c
 	$(CROSS_COMPILE)$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $^
 
+retain.o : ../../src/retain.c
+	$(CROSS_COMPILE)$(CC) $(CPPFLAGS) $(CFLAGS) -DWITH_BROKER -DWITH_PERSISTENCE -c -o $@ $^
+
 subs.o : ../../src/subs.c
+	$(CROSS_COMPILE)$(CC) $(CPPFLAGS) $(CFLAGS) -DWITH_BROKER -DWITH_PERSISTENCE -c -o $@ $^
+
+topic_tok.o : ../../src/topic_tok.c
 	$(CROSS_COMPILE)$(CC) $(CPPFLAGS) $(CFLAGS) -DWITH_BROKER -DWITH_PERSISTENCE -c -o $@ $^
 
 util_mosq.o : ../../lib/util_mosq.c
@@ -112,14 +137,15 @@ utf8_mosq.o : ../../lib/utf8_mosq.c
 test-lib : mosq_test
 	./mosq_test
 
-test-broker : persist_read_test persist_write_test
+test-broker : bridge_topic_test persist_read_test persist_write_test
+	./bridge_topic_test
 	./persist_read_test
 	./persist_write_test
 
 test : test-broker test-lib
 
 clean : 
-	-rm -rf mosq_test persist_read_test persist_write_test
+	-rm -rf mosq_test bridge_topic_test persist_read_test persist_write_test
 	-rm -rf *.o *.gcda *.gcno coverage.info out/
 
 coverage :

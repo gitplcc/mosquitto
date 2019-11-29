@@ -4,38 +4,49 @@
 
 from mosq_test_helper import *
 
-rc = 1
-mid = 53
-keepalive = 60
-connect_packet = mosq_test.gen_connect("will-qos0-test", keepalive=keepalive)
-connack_packet = mosq_test.gen_connack(rc=0)
 
-subscribe_packet = mosq_test.gen_subscribe(mid, "will/qos0/test", 0)
-suback_packet = mosq_test.gen_suback(mid, 0)
+def do_test(proto_ver, clean_session):
+    rc = 1
+    mid = 53
+    keepalive = 60
+    connect1_packet = mosq_test.gen_connect("will-qos0-test", keepalive=keepalive, proto_ver=proto_ver)
+    connack1_packet = mosq_test.gen_connack(rc=0, proto_ver=proto_ver)
 
-publish_packet = mosq_test.gen_publish("will/qos0/test", qos=0, payload="will-message")
+    connect2_packet = mosq_test.gen_connect("test-helper", keepalive=keepalive, will_topic="will/qos0/test", will_payload=b"will-message", clean_session=clean_session, proto_ver=proto_ver, session_expiry=60)
+    connack2_packet = mosq_test.gen_connack(rc=0, proto_ver=proto_ver)
 
-port = mosq_test.get_port()
-broker = mosq_test.start_broker(filename=os.path.basename(__file__), port=port)
+    subscribe_packet = mosq_test.gen_subscribe(mid, "will/qos0/test", 0, proto_ver=proto_ver)
+    suback_packet = mosq_test.gen_suback(mid, 0, proto_ver=proto_ver)
 
-try:
-    sock = mosq_test.do_client_connect(connect_packet, connack_packet, timeout=30, port=port)
-    mosq_test.do_send_receive(sock, subscribe_packet, suback_packet, "suback")
+    publish_packet = mosq_test.gen_publish("will/qos0/test", qos=0, payload="will-message", proto_ver=proto_ver)
 
-    will = subprocess.Popen(['./07-will-qos0-helper.py', str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    will.wait()
-    (stdo, stde) = will.communicate()
+    port = mosq_test.get_port()
+    broker = mosq_test.start_broker(filename=os.path.basename(__file__), port=port)
 
-    if mosq_test.expect_packet(sock, "publish", publish_packet):
-        rc = 0
+    try:
+        sock = mosq_test.do_client_connect(connect1_packet, connack1_packet, timeout=5, port=port)
+        mosq_test.do_send_receive(sock, subscribe_packet, suback_packet, "suback")
 
-    sock.close()
-finally:
-    broker.terminate()
-    broker.wait()
-    (stdo, stde) = broker.communicate()
-    if rc:
-        print(stde.decode('utf-8'))
+        sock2 = mosq_test.do_client_connect(connect2_packet, connack2_packet, port=port, timeout=5)
+        sock2.close()
 
-exit(rc)
+        if mosq_test.expect_packet(sock, "publish", publish_packet):
+            rc = 0
+
+        sock.close()
+    except Exception as e:
+        print(e)
+    finally:
+        broker.terminate()
+        broker.wait()
+        (stdo, stde) = broker.communicate()
+        if rc:
+            print(stde.decode('utf-8'))
+            exit(rc)
+
+do_test(4, True)
+do_test(4, False)
+do_test(5, True)
+do_test(5, False)
+exit(0)
 

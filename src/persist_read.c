@@ -36,7 +36,7 @@ Contributors:
 #include "time_mosq.h"
 #include "util_mosq.h"
 
-static uint32_t db_version;
+uint32_t db_version;
 
 const unsigned char magic[15] = {0x00, 0xB5, 0x00, 'm','o','s','q','u','i','t','t','o',' ','d','b'};
 
@@ -138,7 +138,7 @@ static int persist__client_msg_restore(struct mosquitto_db *db, struct P_client_
 		return 1;
 	}
 	cmsg->store = load->store;
-	cmsg->store->ref_count++;
+	db__msg_store_ref_inc(cmsg->store);
 
 	context = persist__find_or_add_context(db, chunk->client_id, 0);
 	if(!context){
@@ -325,7 +325,7 @@ static int persist__retain_chunk_restore(struct mosquitto_db *db, FILE *db_fptr)
 
 	HASH_FIND(hh, db->msg_store_load, &chunk.F.store_id, sizeof(dbid_t), load);
 	if(load){
-		sub__messages_queue(db, NULL, load->store->topic, load->store->qos, load->store->retain, &load->store);
+		retain__store(db, load->store->topic, load->store, NULL);
 	}else{
 		log__printf(NULL, MOSQ_LOG_ERR, "Error: Corrupt database whilst restoring a retained message.");
 		return MOSQ_ERR_INVAL;

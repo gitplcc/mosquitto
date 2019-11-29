@@ -20,11 +20,10 @@
 			<group choice='req'>
 				<arg choice='plain'>
 					<arg><option>-h</option> <replaceable>hostname</replaceable></arg>
+					<arg><option>--unix</option> <replaceable>socket path</replaceable></arg>
 					<arg><option>-p</option> <replaceable>port-number</replaceable></arg>
-					<arg>
-						<arg><option>-u</option> <replaceable>username</replaceable></arg>
-						<arg><option>-P</option> <replaceable>password</replaceable></arg>
-					</arg>
+					<arg><option>-u</option> <replaceable>username</replaceable></arg>
+					<arg><option>-P</option> <replaceable>password</replaceable></arg>
 					<arg choice='plain' rep='repeat'><option>-t</option> <replaceable>message-topic</replaceable></arg>
 				</arg>
 				<arg choice='plain'><option>-L</option> <replaceable>URL</replaceable></arg>
@@ -118,7 +117,7 @@
 		<para>The options below may be given on the command line, but may also
 			be placed in a config file located at
 			<option>$XDG_CONFIG_HOME/mosquitto_pub</option> or
-			<option>$HOME/.config/mosquitto_sub</option> with one pair of
+			<option>$HOME/.config/mosquitto_pub</option> with one pair of
 			<option>-option <replaceable>value</replaceable></option>
 			per line. The values in the config file will be used as defaults
 			and can be overridden by using the command line. The exceptions to
@@ -256,9 +255,15 @@
 				<term><option>-i</option></term>
 				<term><option>--id</option></term>
 				<listitem>
-					<para>The id to use for this client. If not given, defaults
-					to mosquitto_pub_ appended with the process id of the
-					client. Cannot be used at the same time as the
+					<para>The id to use for this client. If not given, a client id will
+					be generated depending on the MQTT version being used. For v3.1.1/v3.1,
+					the client generates a client id in the format
+					<option>mosq-XXXXXXXXXXXXXXXXXX</option>, where the
+					<option>X</option> are replaced with random alphanumeric
+					characters. For v5.0, the client sends a zero length client id, and the
+					server will generate a client id for the client.</para>
+
+					<para>This option cannot be used at the same time as the
 					<option>--id-prefix</option> argument.</para>
 				</listitem>
 			</varlistentry>
@@ -366,8 +371,8 @@
 				<listitem>
 					<para>Provide a password to be used for authenticating with
 						the broker. Using this argument without also specifying
-						a username is invalid. See also the
-						<option>--username</option> option.</para>
+						a username is invalid when using MQTT v3.1 or v3.1.1.
+						See also the <option>--username</option> option.</para>
 				</listitem>
 			</varlistentry>
 			<varlistentry>
@@ -531,6 +536,21 @@
 					<para>Provide a username to be used for authenticating with
 						the broker.  See also the <option>--pw</option>
 						argument.</para>
+				</listitem>
+			</varlistentry>
+			<varlistentry>
+				<term><option>--unix</option></term>
+				<listitem>
+					<para>Connect to a broker through a local unix domain socket
+						instead of a TCP socket. This is a replacement for
+						<option>-h</option> and <option>-L</option>. For example:
+						<option>mosquitto_pub --unix /tmp/mosquitto.sock ...</option>
+					</para>
+					<para>See the <option>socket_domain</option> option in
+						<refentrytitle>
+							<link xlink:href="mosquitto-conf-5.html">mosquitto.conf</link>
+						</refentrytitle><manvolnum>5</manvolnum>
+						to configure Mosquitto to listen on a unix socket.</para>
 				</listitem>
 			</varlistentry>
 			<varlistentry>

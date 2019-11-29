@@ -20,11 +20,10 @@
 			<group choice='req'>
 				<arg choice='plain'>
 					<arg><option>-h</option> <replaceable>hostname</replaceable></arg>
+					<arg><option>--unix</option> <replaceable>socket path</replaceable></arg>
 					<arg><option>-p</option> <replaceable>port-number</replaceable></arg>
-					<arg>
-						<arg><option>-u</option> <replaceable>username</replaceable></arg>
-						<arg><option>-P</option> <replaceable>password</replaceable></arg>
-					</arg>
+					<arg><option>-u</option> <replaceable>username</replaceable></arg>
+					<arg><option>-P</option> <replaceable>password</replaceable></arg>
 					<arg choice='plain' rep='repeat'><option>-t</option> <replaceable>message-topic</replaceable></arg>
 				</arg>
 				<arg choice='plain'>
@@ -47,6 +46,7 @@
 			<arg><option>-I</option> <replaceable>client-id-prefix</replaceable></arg>
 			<arg><option>-k</option> <replaceable>keepalive-time</replaceable></arg>
 			<arg><option>-N</option></arg>
+			<arg><option>--pretty</option></arg>
 			<arg><option>-q</option> <replaceable>message-QoS</replaceable></arg>
 			<arg><option>-R</option></arg>
 			<arg><option>-S</option></arg>
@@ -274,9 +274,15 @@
 				<term><option>-i</option></term>
 				<term><option>--id</option></term>
 				<listitem>
-					<para>The id to use for this client. If not given, defaults
-					to mosquitto_rr_ appended with the process id of the
-					client. Cannot be used at the same time as the
+					<para>The id to use for this client. If not given, a client id will
+					be generated depending on the MQTT version being used. For v3.1.1/v3.1,
+					the client generates a client id in the format
+					<option>mosq-XXXXXXXXXXXXXXXXXX</option>, where the
+					<option>X</option> are replaced with random alphanumeric
+					characters. For v5.0, the client sends a zero length client id, and the
+					server will generate a client id for the client.</para>
+
+					<para>This option cannot be used at the same time as the
 					<option>--id-prefix</option> argument.</para>
 				</listitem>
 			</varlistentry>
@@ -387,8 +393,18 @@
 				<listitem>
 					<para>Provide a password to be used for authenticating with
 						the broker. Using this argument without also specifying
-						a username is invalid. See also the
-						<option>--username</option> option.</para>
+						a username is invalid when using MQTT v3.1 or v3.1.1.
+						See also the <option>--username</option> option.</para>
+				</listitem>
+			</varlistentry>
+			<varlistentry>
+				<term><option>--pretty</option></term>
+				<listitem>
+                    <para>
+						When using the JSON output format %j or %J, the default
+						is to print in an unformatted fashion. Specifying
+						<option>--pretty</option> prints messages in a prettier,
+						more human readable format.</para>
 				</listitem>
 			</varlistentry>
 			<varlistentry>
@@ -542,6 +558,21 @@
 				</listitem>
 			</varlistentry>
 			<varlistentry>
+				<term><option>--unix</option></term>
+				<listitem>
+					<para>Connect to a broker through a local unix domain socket
+						instead of a TCP socket. This is a replacement for
+						<option>-h</option> and <option>-L</option>. For example:
+						<option>mosquitto_pub --unix /tmp/mosquitto.sock ...</option>
+					</para>
+					<para>See the <option>socket_domain</option> option in
+						<refentrytitle>
+							<link xlink:href="mosquitto-conf-5.html">mosquitto.conf</link>
+						</refentrytitle><manvolnum>5</manvolnum>
+						to configure Mosquitto to listen on a unix socket.</para>
+				</listitem>
+			</varlistentry>
+			<varlistentry>
 				<term><option>-v</option></term>
 				<term><option>--verbose</option></term>
 				<listitem>
@@ -636,11 +667,22 @@
 			<title>MQTT related parameters</title>
 			<itemizedlist mark="circle">
 				<listitem><para><option>%%</option> a literal %.</para></listitem>
+				<listitem><para><option>%A</option> the MQTT v5 topic-alias property, if present.</para></listitem>
+				<listitem><para><option>%C</option> the MQTT v5 content-type property, if present.</para></listitem>
+				<listitem><para><option>%D</option> the MQTT v5 correlation-data property, if present. Note that this
+						property is specified as binary data, so may produce non-printable characters.</para></listitem>
+				<listitem><para><option>%E</option> the MQTT v5 message-expiry-interval property, if present.</para></listitem>
+				<listitem><para><option>%F</option> the MQTT v5 payload-format-indicator property, if present.</para></listitem>
 				<listitem><para><option>%l</option> the length of the payload in bytes.</para></listitem>
 				<listitem><para><option>%m</option> the message id (only relevant for messages with QoS>0).</para></listitem>
+				<listitem><para><option>%P</option> the MQTT v5 user-property property, if present. This will be printed in the
+						form key:value. It is possible for any number of user properties to be attached to a message, and to
+						have duplicate keys.</para></listitem>
 				<listitem><para><option>%p</option> the payload raw bytes (may produce non-printable characters depending on the payload).</para></listitem>
 				<listitem><para><option>%q</option> the message QoS.</para></listitem>
+				<listitem><para><option>%R</option> the MQTT v5 response-topic property, if present.</para></listitem>
 				<listitem><para><option>%r</option> the retained flag for the message.</para></listitem>
+				<listitem><para><option>%S</option> the MQTT v5 subscription-identifier property, if present.</para></listitem>
 				<listitem><para><option>%t</option> the message topic.</para></listitem>
 				<listitem><para><option>%x</option> the payload with each byte as a hexadecimal number (lower case).</para></listitem>
 				<listitem><para><option>%X</option> the payload with each byte as a hexadecimal number (upper case).</para></listitem>
@@ -660,7 +702,9 @@
 						parameters and timestamp, with a non-quoted and
 						non-escaped payload - this means the payload must
 						itself be valid JSON. For example:
-						<code>{"tst":1470825369,"topic":"foo","qos":0,"retain":0,"payload":{"temperature":27.0,"humidity":57}}</code>.</para></listitem>
+						<code>{"tst":1470825369,"topic":"foo","qos":0,"retain":0,"payload":{"temperature":27.0,"humidity":57}}</code>.</para>
+					<para>If the payload is not valid JSON, then the error message "Error: Message payload is not valid JSON on topic
+						&lt;topic&gt;" will be printed to stderr.</para></listitem>
 				<listitem><para><option>%I</option> ISO-8601 format date and time, e.g. 2016-08-10T09:47:38+0100</para></listitem>
 				<listitem><para><option>%U</option> Unix timestamp with nanoseconds, e.g. 1470818943.786368637</para></listitem>
 			</itemizedlist>
@@ -783,6 +827,24 @@
 				<listitem><para><option>will-delay-interval</option> (32-bit unsigned integer)</para></listitem>
 			</itemizedlist>
 		</refsect2>
+	</refsect1>
+
+	<refsect1>
+		<title>Exit Values</title>
+		<variablelist>
+			<varlistentry>
+				<term><option>0</option></term>
+				<listitem><para>Success</para></listitem>
+			</varlistentry>
+			<varlistentry>
+				<term><option>27</option></term>
+				<listitem><para>Timed out waiting for message</para></listitem>
+			</varlistentry>
+			<varlistentry>
+				<term><option>Other non-zero value</option></term>
+				<listitem><para>Unspecified failure</para></listitem>
+			</varlistentry>
+		</variablelist>
 	</refsect1>
 
 	<refsect1>

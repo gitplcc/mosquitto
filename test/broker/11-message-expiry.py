@@ -24,8 +24,7 @@ write_config(conf_file, port)
 
 rc = 1
 keepalive = 60
-props = mqtt5_props.gen_uint32_prop(mqtt5_props.PROP_SESSION_EXPIRY_INTERVAL, 60)
-connect_packet = mosq_test.gen_connect("subpub-qos0-test", keepalive=keepalive, proto_ver=5, clean_session=False, properties=props)
+connect_packet = mosq_test.gen_connect("subpub-qos0-test", keepalive=keepalive, proto_ver=5, clean_session=False, session_expiry=60)
 connack1_packet = mosq_test.gen_connack(rc=0, proto_ver=5)
 connack2_packet = mosq_test.gen_connack(rc=0, proto_ver=5, flags=1)
 
@@ -39,12 +38,12 @@ helper_connect = mosq_test.gen_connect("helper", proto_ver=5)
 helper_connack = mosq_test.gen_connack(rc=0, proto_ver=5)
 
 mid=1
-props = mqtt5_props.gen_uint32_prop(mqtt5_props.PROP_MESSAGE_EXPIRY_INTERVAL, 1)
+props = mqtt5_props.gen_uint32_prop(mqtt5_props.PROP_MESSAGE_EXPIRY_INTERVAL, 5)
 publish1s_packet = mosq_test.gen_publish("subpub/qos1", mid=mid, qos=1, payload="message1", proto_ver=5, properties=props)
 puback1s_packet = mosq_test.gen_puback(mid)
 
 mid=2
-props = mqtt5_props.gen_uint32_prop(mqtt5_props.PROP_MESSAGE_EXPIRY_INTERVAL, 10)
+props = mqtt5_props.gen_uint32_prop(mqtt5_props.PROP_MESSAGE_EXPIRY_INTERVAL, 100)
 publish2s_packet = mosq_test.gen_publish("subpub/qos1", mid=mid, qos=1, payload="message2", proto_ver=5, properties=props)
 puback2s_packet = mosq_test.gen_puback(mid)
 
@@ -75,11 +74,11 @@ try:
     sock.close()
     broker = mosq_test.start_broker(filename=os.path.basename(__file__), use_conf=True, port=port)
 
-    time.sleep(2)
+    time.sleep(7)
     
     sock = mosq_test.do_client_connect(connect_packet, connack2_packet, timeout=20, port=port)
     packet = sock.recv(len(publish2s_packet))
-    for i in range(9, 1, -1):
+    for i in range(100, 1, -1):
         props = mqtt5_props.gen_uint32_prop(mqtt5_props.PROP_MESSAGE_EXPIRY_INTERVAL, i)
         publish2r_packet = mosq_test.gen_publish("subpub/qos1", mid=2, qos=1, payload="message2", proto_ver=5, properties=props)
         if packet == publish2r_packet:

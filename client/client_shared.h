@@ -38,6 +38,9 @@ Contributors:
 #define CLIENT_RR 3
 #define CLIENT_RESPONSE_TOPIC 4
 
+#define PORT_UNDEFINED -1
+#define PORT_UNIX 0
+
 struct mosq_config {
 	char *id;
 	char *id_prefix;
@@ -86,8 +89,8 @@ struct mosq_config {
 #  endif
 #endif
 	bool clean_session;
-	char **topics; /* sub */
-	int topic_count; /* sub */
+	char **topics; /* sub, rr */
+	int topic_count; /* sub, rr */
 	bool exit_after_sub; /* sub */
 	bool no_retain; /* sub */
 	bool retained_only; /* sub */
@@ -99,7 +102,8 @@ struct mosq_config {
 	bool verbose; /* sub */
 	bool eol; /* sub */
 	int msg_count; /* sub */
-	char *format; /* sub */
+	char *format; /* sub, rr */
+	bool pretty; /* sub, rr */
 	int timeout; /* sub */
 	int sub_opts; /* sub */
 #ifdef WITH_SOCKS
@@ -125,5 +129,7 @@ int client_id_generate(struct mosq_config *cfg);
 int client_connect(struct mosquitto *mosq, struct mosq_config *cfg);
 
 int cfg_parse_property(struct mosq_config *cfg, int argc, char *argv[], int *idx);
+
+void err_printf(const struct mosq_config *cfg, const char *fmt, ...);
 
 #endif

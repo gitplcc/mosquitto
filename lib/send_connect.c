@@ -41,7 +41,7 @@ int send__connect(struct mosquitto *mosq, uint16_t keepalive, bool clean_session
 	uint8_t version;
 	char *clientid, *username, *password;
 	int headerlen;
-	int proplen = 0, will_proplen, varbytes;
+	int proplen = 0, varbytes;
 	mosquitto_property *local_props = NULL;
 	uint16_t receive_maximum;
 
@@ -106,16 +106,24 @@ int send__connect(struct mosquitto *mosq, uint16_t keepalive, bool clean_session
 
 		payloadlen += 2+strlen(mosq->will->msg.topic) + 2+mosq->will->msg.payloadlen;
 		if(mosq->protocol == mosq_p_mqtt5){
-			will_proplen = property__get_length_all(mosq->will->properties);
-			varbytes = packet__varint_bytes(will_proplen);
-			payloadlen += will_proplen + varbytes;
+			payloadlen += property__get_remaining_length(mosq->will->properties);
 		}
 	}
+
+	/* After this check we can be sure that the username and password are
+	 * always valid for the current protocol, so there is no need to check
+	 * username before checking password. */
+	if(mosq->protocol == mosq_p_mqtt31 || mosq->protocol == mosq_p_mqtt311){
+		if(password != NULL && username == NULL){
+			return MOSQ_ERR_INVAL;
+		}
+	}
+
 	if(username){
 		payloadlen += 2+strlen(username);
-		if(password){
-			payloadlen += 2+strlen(password);
-		}
+	}
+	if(password){
+		payloadlen += 2+strlen(password);
 	}
 
 	packet->command = CMD_CONNECT;
@@ -133,7 +141,7 @@ int send__connect(struct mosquitto *mosq, uint16_t keepalive, bool clean_session
 		packet__write_string(packet, PROTOCOL_NAME, strlen(PROTOCOL_NAME));
 	}
 #if defined(WITH_BROKER) && defined(WITH_BRIDGE)
-	if(mosq->bridge && mosq->bridge->try_private && mosq->bridge->try_private_accepted){
+	if(mosq->bridge && mosq->bridge->protocol_version != mosq_p_mqtt5 && mosq->bridge->try_private && mosq->bridge->try_private_accepted){
 		version |= 0x80;
 	}else{
 	}
@@ -141,13 +149,16 @@ int send__connect(struct mosquitto *mosq, uint16_t keepalive, bool clean_session
 	packet__write_byte(packet, version);
 	byte = (clean_session&0x1)<<1;
 	if(will){
-		byte = byte | ((mosq->will->msg.retain&0x1)<<5) | ((mosq->will->msg.qos&0x3)<<3) | ((will&0x1)<<2);
+		byte = byte | ((mosq->will->msg.qos&0x3)<<3) | ((will&0x1)<<2);
+		if(mosq->retain_available){
+			byte |= (mosq->will->msg.retain&0x1)<<5;
+		}
 	}
 	if(username){
 		byte = byte | 0x1<<7;
-		if(mosq->password){
-			byte = byte | 0x1<<6;
-		}
+	}
+	if(mosq->password){
+		byte = byte | 0x1<<6;
 	}
 	packet__write_byte(packet, byte);
 	packet__write_uint16(packet, keepalive);
@@ -158,6 +169,7 @@ int send__connect(struct mosquitto *mosq, uint16_t keepalive, bool clean_session
 		property__write_all(packet, properties, false);
 		property__write_all(packet, local_props, false);
 	}
+	mosquitto_property_free_all(&local_props);
 
 	/* Payload */
 	if(clientid){
@@ -173,11 +185,12 @@ int send__connect(struct mosquitto *mosq, uint16_t keepalive, bool clean_session
 		packet__write_string(packet, mosq->will->msg.topic, strlen(mosq->will->msg.topic));
 		packet__write_string(packet, (const char *)mosq->will->msg.payload, mosq->will->msg.payloadlen);
 	}
+
 	if(username){
 		packet__write_string(packet, username, strlen(username));
-		if(password){
-			packet__write_string(packet, password, strlen(password));
-		}
+	}
+	if(password){
+		packet__write_string(packet, password, strlen(password));
 	}
 
 	mosq->keepalive = keepalive;

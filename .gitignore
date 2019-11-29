@@ -25,6 +25,8 @@ cov-int/
 
 dist/
 
+docker/local/mosq.tar.gz
+
 examples/mysql_log/mosquitto_mysql_log
 examples/temperature_conversion/mqtt_temperature_conversion
 
@@ -60,10 +62,13 @@ test/broker/c/auth_plugin.so
 test/broker/c/*.test
 
 test/ssl/*.csr
+test/ssl/rootCA/
+test/ssl/signingCA/
 
 test/lib/c/*.test
 test/lib/cpp/*.test
 
+test/unit/bridge_topic_test
 test/unit/coverage.info
 test/unit/mosq_test
 test/unit/persist_read_test
