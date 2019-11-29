@@ -176,7 +176,7 @@ int log__vprintf(int priority, const char *fmt, va_list va)
 	char *st;
 	int len;
 #ifdef WIN32
-	char *sp;
+	const char *sp;
 #endif
 	const char *topic;
 	int syslog_priority;

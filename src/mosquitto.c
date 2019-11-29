@@ -212,7 +212,7 @@ int main(int argc, char *argv[])
 #endif
 	struct mosquitto *ctxt, *ctxt_tmp;
 
-#if defined(WIN32) || defined(__CYGWIN__)
+#if defined(WIN32)
 	if(argc == 2){
 		if(!strcmp(argv[1], "run")){
 			service_run();
